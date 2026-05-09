@@ -1,0 +1,20 @@
+# Cocos Creator 项目
+library/
+temp/
+local/
+build/
+native/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+
+# 构建产物
+build-templates/
