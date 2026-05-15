@@ -8,6 +8,7 @@ import { CombatCalculator } from './systems/CombatCalculator';
 import { OfflineSystem } from './systems/OfflineSystem';
 import { RealmConfig } from './config/RealmConfig';
 import { TechniqueConfig } from './config/TechniqueConfig';
+import { DungeonConfig } from './config/DungeonConfig';
 import { NumberUtils } from './utils/NumberUtils';
 import { TimeUtils } from './utils/TimeUtils';
 import { GameConstants } from './config/GameConstants';
@@ -120,7 +121,7 @@ export class UIManager extends Component {
     private _pendingOfflineReward: number = 0;
     private _pendingOfflineDuration: number = 0;
 
-    onLoad() {
+    protected onLoad() {
         this.bindEvents();
         this.bindButtons();
         // 不要在这里调用 switchTab(0)，由 onRuntimeShellReady 统一处理
@@ -150,9 +151,17 @@ export class UIManager extends Component {
     }
 
     public registerTechniquePickButtons(buttons: Button[]): void {
-        buttons.forEach((btn, id) => {
+        buttons.forEach((btn) => {
             btn.node.off(Button.EventType.CLICK);
-            btn.node.on(Button.EventType.CLICK, () => this.onPickTechnique(id), this);
+            btn.node.on(Button.EventType.CLICK, () => {
+                const techId = (btn.node as unknown as { __techniqueId?: string }).__techniqueId;
+                if (techId !== undefined) {
+                    const id = parseInt(techId, 10);
+                    if (!isNaN(id)) {
+                        this.onPickTechnique(id);
+                    }
+                }
+            }, this);
         });
     }
 
@@ -290,7 +299,9 @@ export class UIManager extends Component {
 
     private onBreakthroughFailed(): void {
         // TODO: 提示突破失败
-        console.log('[UI] 突破失败！');
+        if (CC_DEBUG) {
+            console.log('[UI] 突破失败！');
+        }
     }
 
     /** 突破按钮点击 */
@@ -470,6 +481,22 @@ export class UIManager extends Component {
 
     private setPanelActive(panel: Node | null, active: boolean): void {
         if (panel) panel.active = active;
+    }
+
+    protected onDestroy(): void {
+        const eb = EventBus.instance;
+        eb.off(GameEvent.CULTIVATION_UPDATED, this.updateCultivationUI, this);
+        eb.off(GameEvent.CULTIVATION_PER_SEC_CHANGED, this.updateRateUI, this);
+        eb.off(GameEvent.CAN_BREAKTHROUGH, this.onCanBreakthrough, this);
+        eb.off(GameEvent.BREAKTHROUGH_SUCCESS, this.onBreakthroughSuccess, this);
+        eb.off(GameEvent.BREAKTHROUGH_FAILED, this.onBreakthroughFailed, this);
+        eb.off(GameEvent.SPIRIT_STONES_CHANGED, this.updateSpiritStonesUI, this);
+        eb.off(GameEvent.COMBAT_POWER_CHANGED, this.updateCombatPowerUI, this);
+        eb.off(GameEvent.TECHNIQUE_CHANGED, this.updateTechniqueUI, this);
+        eb.off(GameEvent.TECHNIQUE_UPGRADED, this.updateTechniqueUI, this);
+        eb.off(GameEvent.DUNGEON_VICTORY, this.onDungeonResult, this);
+        eb.off(GameEvent.DUNGEON_DEFEAT, this.onDungeonResult, this);
+        eb.off(GameEvent.OFFLINE_REWARD, this.onOfflineReward, this);
     }
 
     update(dt: number) {

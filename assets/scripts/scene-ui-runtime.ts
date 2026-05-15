@@ -13,7 +13,6 @@ import {
     HorizontalTextAlignment,
     VerticalTextAlignment,
     ProgressBar,
-    EventHandler,
     director,
 } from 'cc';
 import { UIManager } from './UIManager';
@@ -32,6 +31,7 @@ const COLORS = {
     white: new Color(255, 255, 255),
     gray: new Color(180, 180, 180),
     red: new Color(220, 60, 60),
+    redDark: new Color(160, 40, 40),
     blue: new Color(100, 150, 255),
     green: new Color(100, 220, 120),
     panelBg: new Color(25, 20, 40, 220),
@@ -78,7 +78,7 @@ function makePanelTitle(parent: Node, name: string, text: string, y: number): La
 /**
  * 创建修仙风格按钮
  */
-function makeButton(parent: Node, name: string, title: string, y: number, w = 260, h = 52, color: Color = COLORS.purple, handler?: (idx: number) => void, customData?: string): Button {
+function makeButton(parent: Node, name: string, title: string, y: number, w = 260, h = 52, color: Color = COLORS.purple, customData?: string): Button {
     const n = new Node(name);
     addUITransform(n, w, h);
     const btn = n.addComponent(Button);
@@ -93,14 +93,14 @@ function makeButton(parent: Node, name: string, title: string, y: number, w = 26
     bg.setPosition(0, 0, 0);
     const bgSprite = bg.addComponent(Sprite);
     bgSprite.type = Sprite.Type.SLICED;
-    bgSprite.color = color; // 使用纯色
+    bgSprite.color = color;
     n.addChild(bg);
 
     // 按钮顶部高光
     const highlight = new Node('Highlight');
     addUITransform(highlight, w - 10, 4);
     const hlSprite = highlight.addComponent(Sprite);
-    hlSprite.color = new Color(255, 255, 255, 80);
+    hlSprite.color = new Color(255, 255, 255, 60);
     highlight.setPosition(0, h/2 - 6, 0);
     n.addChild(highlight);
 
@@ -118,37 +118,12 @@ function makeButton(parent: Node, name: string, title: string, y: number, w = 26
 
     btn.target = bg;
 
-    // 添加点击事件 - 如果提供了 customData，则添加事件处理器
-    if (customData !== undefined) {
-        const clickHandler = new EventHandler();
-        clickHandler.target = _uiManagerNode;
-        clickHandler.component = 'UIManager';
-        clickHandler.handler = '_onTechniquePickClick';
-        clickHandler.customEventData = customData;
-        btn.clickEvents.push(clickHandler);
+    // 强制设置按钮尺寸确保可点击
+    btn.node._uiProps.uiTransformComp!.setContentSize(w, h);
 
-        // 同时使用 node.on('click') 绑定直接回调
-        n.on('click', () => {
-            const id = parseInt(customData, 10);
-            if (!isNaN(id)) {
-                // 尝试从 _uiManagerNode 获取 UIManager
-                let ui: UIManager | null = null;
-                if (_uiManagerNode) {
-                    ui = _uiManagerNode.getComponent('UIManager') as UIManager;
-                }
-                // 备用：从 GameLogic 获取
-                if (!ui) {
-                    const gameLogic = director.getScene()?.getChildByName('GameLogic');
-                    if (gameLogic) {
-                        ui = gameLogic.getComponent('UIManager') as UIManager;
-                    }
-                }
-                if (ui && ui.onPickTechnique) {
-                    ui.onPickTechnique(id);
-                    console.log(`[scene-ui-runtime] Clicked technique: ${id}`);
-                }
-            }
-        });
+    // customData 存储功法ID，由 registerTechniquePickButtons 统一处理点击事件
+    if (customData !== undefined) {
+        (n as unknown as { __techniqueId?: string }).__techniqueId = customData;
     }
 
     n.setPosition(0, y, 0);
@@ -232,7 +207,7 @@ export function buildExtendedUi(uiRoot: Node, ui: UIManager): void {
 
         const sprite = bg.addComponent(Sprite);
         sprite.sizeMode = Sprite.SizeMode.CUSTOM;
-        sprite.color = new Color(30, 20, 50, 255); // 深紫色背景
+        sprite.color = new Color(20, 18, 30, 255); // 深蓝灰纯色背景
 
         uiRoot.addChild(bg);
     }
@@ -355,19 +330,52 @@ export function buildExtendedUi(uiRoot: Node, ui: UIManager): void {
     addUITransform(pick, DESIGN_W, DESIGN_H);
     pick.setPosition(0, 0, 0);
 
-    // 遮罩背景
+    // 遮罩背景（全屏不透明黑色底）
     const pickBg = new Node('PickBg');
     addUITransform(pickBg, DESIGN_W, DESIGN_H);
     const pickBgSprite = pickBg.addComponent(Sprite);
-    pickBgSprite.color = new Color(0, 0, 0, 200);
+    pickBgSprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    pickBgSprite.color = new Color(0, 0, 0, 220);
     pickBg.setPosition(0, 0, 0);
     pick.addChild(pickBg);
 
-    // 选功法面板
-    const pickPanel = createStyledPanel(pick, 'PickPanel', 580, 680, 0, COLORS.panelBg);
+    // 选功法面板（放在遮罩背景上）
+    const pickPanel = new Node('PickPanel');
+    addUITransform(pickPanel, 580, 700);
+    pickPanel.setPosition(0, 0, 0);
+    pick.addChild(pickPanel);
 
-    makePanelTitle(pickPanel, 'PickTitle', '选择功法', 290);
-    makeLabel(pickPanel, 'PickSubtitle', '仅可选择一次，请谨慎选择', 16, 245, 500, COLORS.gray);
+    // 面板背景
+    const ppBg = new Node('Bg');
+    addUITransform(ppBg, 580, 700);
+    const ppBgSprite = ppBg.addComponent(Sprite);
+    ppBgSprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    ppBgSprite.color = COLORS.panelBg;
+    ppBg.setPosition(0, 0, 0);
+    pickPanel.addChild(ppBg);
+
+    // 金色边框
+    const ppBorder = new Node('Border');
+    addUITransform(ppBorder, 590, 710);
+    const ppBorderSprite = ppBorder.addComponent(Sprite);
+    ppBorderSprite.color = COLORS.gold;
+    ppBorder.setPosition(0, 0, 0);
+    ppBorder.setSiblingIndex(0);
+    pickPanel.addChild(ppBorder);
+
+    // 内部不透明层（盖住边框内部）
+    const ppInner = new Node('Inner');
+    addUITransform(ppInner, 578, 698);
+    const ppInnerSprite = ppInner.addComponent(Sprite);
+    ppInnerSprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    ppInnerSprite.color = COLORS.panelBg;
+    ppInner.setPosition(0, 0, 0);
+    ppInner.setSiblingIndex(1);
+    pickPanel.addChild(ppInner);
+
+    // 标题
+    makePanelTitle(pickPanel, 'PickTitle', '选择功法', 305);
+    makeLabel(pickPanel, 'PickSubtitle', '仅可选择一次，请谨慎选择', 16, 260, 500, COLORS.gray);
 
     // 功法选项
     const pickBtns: Button[] = [];
@@ -417,7 +425,7 @@ export function buildExtendedUi(uiRoot: Node, ui: UIManager): void {
         card.addChild(qualityLabel);
 
         // 选择按钮
-        const btn = makeButton(card, `PickBtn${i}`, '选择', 0, 110, 42, COLORS.gold, undefined, String(i));
+        const btn = makeButton(card, `PickBtn${i}`, '选择', 0, 110, 42, COLORS.gold, String(i));
         btn.node.setPosition(160, 0, 0);
         pickBtns.push(btn);
 
@@ -485,15 +493,15 @@ function makeTabButton(parent: Node, name: string, title: string, iconColor: Col
     addUITransform(n, 115, 75);
     const btn = n.addComponent(Button);
     btn.transition = Button.Transition.COLOR;
-    btn.normalColor = new Color(0, 0, 0, 0);
-    btn.hoverColor = new Color(50, 40, 80, 200);
-    btn.pressedColor = new Color(40, 30, 60, 200);
+    btn.normalColor = new Color(45, 38, 65, 255);
+    btn.hoverColor = new Color(75, 58, 110, 255);
+    btn.pressedColor = new Color(85, 68, 125, 255);
 
     // 按钮背景
     const bg = new Node('Background');
     addUITransform(bg, 115, 75);
     const bgSprite = bg.addComponent(Sprite);
-    bgSprite.color = new Color(0, 0, 0, 0);
+    bgSprite.color = new Color(45, 38, 65, 255);
     n.addChild(bg);
 
     // 图标
