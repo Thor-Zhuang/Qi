@@ -1,0 +1,97 @@
+# 炁（Qi）— 修仙挂机小游戏 | Cursor AI 开发规范
+
+## 项目概况
+- **类型**：修仙挂机小游戏
+- **引擎**：Cocos Creator 3.8.6+
+- **平台**：抖音小游戏（720×1280 竖屏）
+- **语言**：TypeScript
+- **核心循环**：挂机修炼 → 累积修为 → 突破境界 → 解锁功能 → 变强 → 更快修炼
+
+## 目录规范
+```
+项目根目录/
+├── .cursorrules              # 本文件
+├── TODOLIST.md               # 开发进度追踪（必须存在）
+├── docs/
+│   └── design/
+│       ├── GDD.md            # 游戏设计文档
+│       ├── levels/           # 关卡设计
+│       │   └── dungeons.md   # 秘境关卡详细设计
+│       ├── balance/          # 数值设计
+│       │   └── numbers.md    # 数值表与计算公式
+│       └── references/       # AI生成的参考图
+│           ├── ui-*.png      # UI设计参考图
+│           └── art-*.png     # 美术风格参考图
+├── assets/
+│   └── scripts/              # 游戏脚本（已有结构，不改动）
+└── settings/                 # Cocos项目设置
+```
+
+## 开发流程（严格遵守）
+
+### Step 1: 读取进度
+每次对话开始，先读取 `TODOLIST.md`，确认当前进度和下一步任务。
+
+### Step 2: 设计先行
+- 如果 `docs/design/GDD.md` 不存在，先根据项目信息生成
+- 如果任务涉及新系统/面板，先在 `docs/design/` 下补充设计文档
+- 数值相关改动，先更新 `docs/design/balance/numbers.md`
+
+### Step 3: UI设计流程（MCP自动化）
+1. 使用 AI生图MCP 生成 UI参考图，保存到 `docs/design/references/ui-*.png`
+2. AI 分析参考图，理解布局和视觉层次
+3. 通过 **Cocos MCP** 在编辑器中创建场景节点树、设置属性、布局
+4. 代码逻辑与编辑器节点绑定
+
+### Step 4: 编码规范
+- TypeScript strict mode
+- 继承 `Component`，使用 `@ccclass` 装饰器
+- 模块间通信统一走 `EventBus`（`GameEvent` 枚举）
+- 数据模型使用 `PlayerData`，存档走 `SaveManager`
+- 新增事件必须追加到 `GameEvent` 枚举
+- 大数字显示用 `NumberUtils.formatBigNumber()`
+- 禁止 `any` 类型，禁止 `console.log`（用 `console.warn`/`console.error`）
+
+### Step 5: 验证
+- Cocos MCP 日志同步报错信息
+- 如有 Playwright MCP，截图对比 `docs/design/references/` 中的参考图
+- 验证通过后更新 TODOLIST.md
+
+### Step 6: 更新进度
+- 每完成一个任务项，立即在 `TODOLIST.md` 中标记 ✅
+- 新发现的任务追加到对应 Phase 下
+- 如果 README.md 中的待办清单也需要同步更新
+
+## TODOLIST 管理规则
+- 项目首次对话时，如果 `TODOLIST.md` 不存在，根据 GDD 自动生成
+- TODOLIST.md 按 Phase 分组，Phase 内按依赖顺序排列
+- 每项任务粒度：一个文件/一个面板/一个功能点
+- 标记规则：`- [ ]` 待办 / `- [x]` 完成 / `- [~]` 进行中
+
+## MCP 工具使用优先级
+1. **Cocos MCP** — 场景/节点操作，必须用于编辑器交互
+2. **AI生图MCP** — 生成UI参考图和美术资源
+3. **Playwright MCP** — 截图验证UI还原度
+4. **Cocos日志MCP** — 同步运行时错误，辅助调试
+
+## 上下文管理
+- 单次对话输出代码不超过 3 个文件，避免超出上下文窗口
+- 超过 3 个文件的任务，分多次对话完成，每次标注"本次完成X/Y"
+- 优先完成核心功能，装饰性代码后补
+
+## 美术资源规范
+- AI生图提示词模板：
+  ```
+  Chinese xianxia game [asset type], [detailed description],
+  mobile game style, [size], [background type],
+  anime-influenced Chinese fantasy art
+  ```
+- 图标尺寸：64×64（小图标）/ 128×128（境界/功法图标）/ 256×512（立绘）
+- 背景尺寸：720×1280（竖屏全屏）
+- 所有生成图片保存到 `docs/design/references/` 后再替换到 `assets/`
+
+## 禁止事项
+- 不要修改已完成的系统代码（config/core/systems）除非明确要求
+- 不要跳过 TODOLIST 直接做后续 Phase 的任务
+- 不要在未读 TODOLIST 的情况下开始新任务
+- 不要把设计文档和参考图放到 `docs/design/` 之外
