@@ -1,15 +1,17 @@
-import { _decorator, Component, Label, Node, ProgressBar, Button, Color, tween, UITransform, Vec3 } from 'cc';
-import { EventBus, GameEvent } from '../core/EventBus';
-import { SaveManager } from '../core/SaveManager';
-import { CultivationSystem } from '../systems/CultivationSystem';
-import { TechniqueSystem } from '../systems/TechniqueSystem';
-import { DungeonSystem } from '../systems/DungeonSystem';
-import { CombatCalculator, OfflineSystem } from '../systems/CombatCalculator';
-import { RealmConfig } from '../config/RealmConfig';
-import { TechniqueConfig } from '../config/TechniqueConfig';
-import { NumberUtils } from '../utils/NumberUtils';
-import { TimeUtils } from '../utils/TimeUtils';
-import { GameConstants } from '../config/GameConstants';
+import { _decorator, Component, Label, Node, ProgressBar, Button, Color, tween, UITransform, Vec3, Event } from 'cc';
+import { EventBus, GameEvent } from './core/EventBus';
+import { SaveManager } from './core/SaveManager';
+import { CultivationSystem } from './systems/CultivationSystem';
+import { TechniqueSystem } from './systems/TechniqueSystem';
+import { DungeonSystem } from './systems/DungeonSystem';
+import { CombatCalculator } from './systems/CombatCalculator';
+import { OfflineSystem } from './systems/OfflineSystem';
+import { RealmConfig } from './config/RealmConfig';
+import { TechniqueConfig } from './config/TechniqueConfig';
+import { DungeonConfig } from './config/DungeonConfig';
+import { NumberUtils } from './utils/NumberUtils';
+import { TimeUtils } from './utils/TimeUtils';
+import { GameConstants } from './config/GameConstants';
 
 const { ccclass, property } = _decorator;
 
@@ -106,14 +108,99 @@ export class UIManager extends Component {
     @property(Button)
     public offlineDoubleBtn: Button | null = null;
 
+    /** 个人面板（运行时装配时可赋值） */
+    public profileRealmLabel: Label | null = null;
+    public profileSpiritLabel: Label | null = null;
+    public profileCombatLabel: Label | null = null;
+
+    /** 选功法全屏层（运行时装配） */
+    public techniquePickOverlay: Node | null = null;
+
     // ====== 内部状态 ======
     private _currentTab: number = 0;
     private _pendingOfflineReward: number = 0;
     private _pendingOfflineDuration: number = 0;
 
-    onLoad() {
+    protected onLoad() {
         this.bindEvents();
+        this.bindButtons();
+        // 不要在这里调用 switchTab(0)，由 onRuntimeShellReady 统一处理
+    }
+
+    /** 程序化绑定按钮（Prefab/场景未拖事件时仍可点击） */
+    private bindButtons(): void {
+        const hook = (btn: Button | null, handler: () => void) => {
+            if (!btn) return;
+            btn.node.off(Button.EventType.CLICK);
+            btn.node.on(Button.EventType.CLICK, handler, this);
+        };
+        hook(this.breakthroughBtn, () => this.onBreakthroughClick());
+        hook(this.speedupBtn, () => this.onSpeedupClick());
+        hook(this.techUpgradeBtn, () => this.onTechUpgradeClick());
+        hook(this.dungeonChallengeBtn, () => this.onDungeonChallengeClick());
+        hook(this.offlineClaimBtn, () => this.onOfflineClaimClick());
+        hook(this.offlineDoubleBtn, () => this.onOfflineDoubleClick());
+    }
+
+    /** Tab、选功法按钮等在运行时生成后调用 */
+    public registerRuntimeTabs(buttons: Button[]): void {
+        buttons.forEach((btn, i) => {
+            btn.node.off(Button.EventType.CLICK);
+            btn.node.on(Button.EventType.CLICK, () => this.switchTab(i), this);
+        });
+    }
+
+    public registerTechniquePickButtons(buttons: Button[]): void {
+        buttons.forEach((btn) => {
+            btn.node.off(Button.EventType.CLICK);
+            btn.node.on(Button.EventType.CLICK, () => {
+                const techId = (btn.node as unknown as { __techniqueId?: string }).__techniqueId;
+                if (techId !== undefined) {
+                    const id = parseInt(techId, 10);
+                    if (!isNaN(id)) {
+                        this.onPickTechnique(id);
+                    }
+                }
+            }, this);
+        });
+    }
+
+    /** SceneRuntimeBoot 完成装配后刷新绑定与初始显示 */
+    public onRuntimeShellReady(): void {
+        this.bindButtons();
+        this.refreshRealmHeader();
+        this.switchTab(this._currentTab);
+        if (TechniqueSystem.instance.hasTechnique()) {
+            if (this.techniquePickOverlay) this.techniquePickOverlay.active = false;
+        }
+    }
+
+    private refreshRealmHeader(): void {
+        const data = SaveManager.instance.data;
+        const realm = RealmConfig.get(data.realmIndex);
+        if (this.realmLabel) this.realmLabel.string = realm.name;
+        if (this.profileRealmLabel) this.profileRealmLabel.string = `境界 ${realm.name}`;
+    }
+
+    /** 新玩家选择功法 */
+    public onPickTechnique(id: number): void {
+        if (!TechniqueSystem.instance.selectTechnique(id)) return;
+        SaveManager.instance.saveGame();
+        if (this.techniquePickOverlay) this.techniquePickOverlay.active = false;
         this.switchTab(0);
+        this.refreshRealmHeader();
+        this.updateCultivationUI();
+        this.updateRateUI();
+        this.updateTechniqueUI();
+        this.updateCombatPowerUI();
+    }
+
+    /** 功法选择按钮点击回调（供运行时 UI 事件调用） */
+    public _onTechniquePickClick(event: Event, customData: string): void {
+        const id = parseInt(customData, 10);
+        if (!isNaN(id)) {
+            this.onPickTechnique(id);
+        }
     }
 
     /** 绑定全局事件 */
@@ -201,20 +288,20 @@ export class UIManager extends Component {
     }
 
     private onBreakthroughSuccess(realmIndex: number): void {
-        const realm = RealmConfig.get(realmIndex);
-        if (this.realmLabel) {
-            this.realmLabel.string = realm.name;
-        }
+        this.refreshRealmHeader();
+        this.updateCultivationUI();
         if (this.breakthroughBtn) {
             this.breakthroughBtn.node.active = false;
         }
-        // 播放突破特效
+        const realm = RealmConfig.get(realmIndex);
         this.playBreakthroughAnimation(realm.name);
     }
 
     private onBreakthroughFailed(): void {
         // TODO: 提示突破失败
-        console.log('[UI] 突破失败！');
+        if (CC_DEBUG) {
+            console.log('[UI] 突破失败！');
+        }
     }
 
     /** 突破按钮点击 */
@@ -344,7 +431,12 @@ export class UIManager extends Component {
     private updateProfileUI(): void {
         const data = SaveManager.instance.data;
         const realm = RealmConfig.get(data.realmIndex);
-        // TODO: 更新个人信息显示
+        const combat = CombatCalculator.instance;
+        if (this.profileRealmLabel) this.profileRealmLabel.string = `境界 ${realm.name}`;
+        if (this.profileSpiritLabel) this.profileSpiritLabel.string = `灵石 ${NumberUtils.format(data.spiritStones)}`;
+        if (this.profileCombatLabel && combat) {
+            this.profileCombatLabel.string = `战力 ${NumberUtils.format(combat.combatPower)}`;
+        }
     }
 
     // ====== 动画 ======
@@ -389,6 +481,22 @@ export class UIManager extends Component {
 
     private setPanelActive(panel: Node | null, active: boolean): void {
         if (panel) panel.active = active;
+    }
+
+    protected onDestroy(): void {
+        const eb = EventBus.instance;
+        eb.off(GameEvent.CULTIVATION_UPDATED, this.updateCultivationUI, this);
+        eb.off(GameEvent.CULTIVATION_PER_SEC_CHANGED, this.updateRateUI, this);
+        eb.off(GameEvent.CAN_BREAKTHROUGH, this.onCanBreakthrough, this);
+        eb.off(GameEvent.BREAKTHROUGH_SUCCESS, this.onBreakthroughSuccess, this);
+        eb.off(GameEvent.BREAKTHROUGH_FAILED, this.onBreakthroughFailed, this);
+        eb.off(GameEvent.SPIRIT_STONES_CHANGED, this.updateSpiritStonesUI, this);
+        eb.off(GameEvent.COMBAT_POWER_CHANGED, this.updateCombatPowerUI, this);
+        eb.off(GameEvent.TECHNIQUE_CHANGED, this.updateTechniqueUI, this);
+        eb.off(GameEvent.TECHNIQUE_UPGRADED, this.updateTechniqueUI, this);
+        eb.off(GameEvent.DUNGEON_VICTORY, this.onDungeonResult, this);
+        eb.off(GameEvent.DUNGEON_DEFEAT, this.onDungeonResult, this);
+        eb.off(GameEvent.OFFLINE_REWARD, this.onOfflineReward, this);
     }
 
     update(dt: number) {
