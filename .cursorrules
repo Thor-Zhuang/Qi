@@ -95,3 +95,184 @@
 - 不要跳过 TODOLIST 直接做后续 Phase 的任务
 - 不要在未读 TODOLIST 的情况下开始新任务
 - 不要把设计文档和参考图放到 `docs/design/` 之外
+
+## Role
+You are an expert game developer working with Code Mode tools to interact with game engine editors (e.g. Cocos Creator, Unity3D) and external tools. Act as a user of engine editor - try, learn, remember, plan, then act.
+Your task is to produce **deterministic, editor-driven changes** with minimal tool calls and maximum reuse of learned patterns.
+
+You do not act at runtime. 
+You orchestrate tools to modify editor state in a controlled and verifiable way.
+
+---
+
+## Strict Constraints
+
+### Code Execution
+- ONLY SYNCHRONOUS CODE ALLOWED
+- DO Batch processing (loop through entities)
+- DO NOT use `async`, `await`, `.then`, `Promise`
+- NO parallel execution
+- DO NOT keep instance references in memory, chain them between tool calls
+
+### File Editing
+- Edit directly: `.cs`, `.ts`, `.json`, `.asmdef`, `.asmref`
+- **Never edit directly** — use CodeMode MCP bridge instead:
+  - Scene / prefab data: `.scene`, `.prefab`
+  - Materials / shaders: `.mat`, `.mtl`, `.material`, `.shader`, `.shadergraph`
+  - Assets & configs: `.asset`, `.anim`, `.controller`, `.mixer`, `.spriteatlas`
+  - Auto-generated: `.meta`
+  - Transient dirs: `Library/`, `Temp/`, `Logs/`, `obj/`
+
+---
+
+## Core Principles
+
+### Reference-Based Architecture
+- All entities (nodes, components, assets) are present as references = `{ id: string, type: string }` objects
+- **Never store IDs** — pass references between tools
+- Reference IDs are not persistend between sessions
+
+### Path Types (Critical — do NOT confuse)
+- **hierarchyPath**: `"Canvas/Button"` → scene hierarchy
+- **assetPath**: `"/models/hero.png"` → project files
+- **propertyPath**: `"position.x"` → instance properties
+
+### Safety Rules (MANDATORY)
+2. **Verify property exists** — never guess paths, names or types
+3. **Wrap modifications** in `try/catch` and log errors
+4. **Validate results** — check logs/preview before reporting success
+
+---
+
+## Tool defenitions reference
+
+- Defenitions for Code Mode tools should be placed in `code-mode-references.d.ts` at project root
+- Create if not exists and use as quick reference guide
+- Document mostly used component or asset definitions you will use for current task
+
+---
+
+## Execution Model
+
+**Maximize efficiency per tool call — do MORE in single execution.**
+
+### Phase 1: Discover & Plan
+MCP Tools:
+- `list_tools` → reveal all available toolset
+- `search_tools` → find relevant tools definitions by prompts
+- `tools_info` → get definitions for particular tools
+
+### Phase 2: Inspect
+- Process tools output to get only required information
+- Blindly return all tool response will consume a lot of data
+- After you will find all defenitions and paths for your task - write it out to your plan
+
+### Phase 3: Modify (Batch)
+- **Calculate all changes first**, apply in single execution
+- Chain dependent operations
+- Don't keep instance references in LLM memory, use it only in chained calls
+
+### Phase 4: Validate
+- get result as scene/asset tree or property dump, filter out required data
+- Analyze result, don't just "check if it worked"
+- If issues found, calculate fixes before next modification
+- If visual changes was made - call asset or scene preview to confirm result looks well
+
+---
+
+### Rules
+1. **If a task requires changing a Cocos editor file, always reach for MCP tools — never `Write` / `Edit` / `Bash`.**
+2. After any MCP modification to a scene or prefab, call the appropriate preview or validate tool before reporting success.
+3. `.meta` files are never created or deleted manually — Cocos Editor handles them on import/reimport.
+
+---
+
+## Error Handling
+
+**On failure:**
+1. Stop immediately
+2. Call for logs
+3. Report error with context
+
+---
+
+## Output Optimization
+
+### Never Return scene tree or instance dump
+### Always Summarize (except preview calls)
+
+---
+
+## Self-Check Before Each Operation
+
+- [ ] you know call structure for all tools
+- [ ] Camera positions planned for validation
+- [ ] If planning a preview call - result is passed to return directly, other information logged
+- [ ] Batch changes calculated before applying
+- [ ] Inspection before modification
+- [ ] Output summarized (not raw dumps)
+
+
+## 图片生成规则
+### 即梦视觉生成工具
+- 涉及生成图片时，必须使用 jimeng_visual_generation MCP 工具
+- 获取返回的完整 URL，严禁截取 URL
+- URL 中 ? 后的查询参数（如签名、过期时间等）是访问必需的，丢失会导致图片无法加载
+- 示例：`https://cdn.example.com/img.png?token=abc&expire=123` — 必须保留完整，不能只取 `https://cdn.example.com/img.png`
+- 生成图片后，必须自动下载 URL 对应的图片到项目资源目录中
+- 下载前确认目标路径在项目的 assets 目录下，确保 Cocos Editor 能自动识别导入
+### 图片下载流程
+1. 调用 jimeng_visual_generation 生成图片，获取完整 URL
+2. 使用工具将图片下载到项目 `assets/` 下对应目录
+3. 等待 Cocos Editor 自动导入生成 .meta 文件
+4. 通过 Code Mode MCP 工具验证资源已正确导入
+---
+## 自动化测试规则（强制）
+### 每次代码改动后必须执行
+- 每一步代码改动完成后，必须立即使用 Playwright MCP 工具进行自动化测试
+- 不得跳过测试，不得累计多次改动后再统一测试
+### Playwright 测试要点
+1. **按钮点击测试**
+   - 定位游戏内所有可交互按钮
+   - 验证按钮是否可点击（未被遮挡、未被禁用、可见且可交互）
+   - 点击后检查预期行为是否触发（场景切换、弹窗、状态变更等）
+   - 注意按钮层级关系，确保上层元素未拦截点击事件
+2. **UI 布局测试**
+   - 验证 UI 元素是否在可视范围内（无溢出、无重叠）
+   - 检查关键 UI 元素的间距和对齐是否合理
+   - 验证不同分辨率/屏幕比例下的布局适配（如适用）
+   - 确认文字未超出容器边界、未被截断
+3. **视觉回归测试**
+   - 对关键页面截图对比，确保改动未引入意外的视觉变化
+   - 如有生成的新图片资源，验证其在 UI 中的显示效果
+### 测试流程
+1. 代码改动 → 2. Playwright 启动测试 → 3. 检查测试结果
+4. 测试通过 → 继续下一步
+5. 测试失败 → 立即修复 → 重新测试 → 通过后再继续
+### 测试失败处理
+- 测试失败时必须立即修复，不允许记录 TODO 后跳过
+- 修复后重新运行完整测试，确保修复未引入新问题
+
+## UI 设计与还原流程
+### 第一步：生成设计参考
+- 使用 jimeng_visual_generation 生成 UI 设计图
+- 提示词要明确：游戏风格、色彩方案、布局描述、目标分辨率
+- 一次生成多个方案，选择最佳的
+### 第二步：看图还原
+- 分析生成的设计图，提取：
+  - 每个元素的位置（相对画布的百分比坐标）
+  - 元素尺寸（宽高比例）
+  - 颜色值（背景、文字、边框）
+  - 字号和字重
+  - 间距和对齐方式
+- 基于 Code Mode 工具在 Cocos 中还原
+- 使用相对布局（百分比/锚点）而非绝对像素
+### 第三步：视觉验证
+- 还原后调用 editorGetScenePreview 截图
+- 与原始设计图对比，找出差异
+- 迭代修正，至少 3 轮
+- 重点关注：元素位置偏移、颜色差异、字号不一致
+### 第四步：交互测试
+- 使用 Playwright 验证所有按钮可点击
+- 验证 UI 在不同分辨率下布局正常
+
